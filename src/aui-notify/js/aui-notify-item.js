@@ -1,103 +1,109 @@
-var ALERT = 'alert',
-    BORDER = 'border',
+var Lang = A.Lang,
+    isNumber = Lang.isNumber,
+    isString = Lang.isString,
+
+    ALERT = 'alert',
     BOUNDING_BOX = 'boundingBox',
-    CONTENT_BOX = 'contentBox',
     INFO = 'info',
     NOTICE = 'notice',
-    NOTIFY_ITEM = 'notify-item',
-    SHADOW = 'shadow',
-    SHOW_TRANSITION = 'showTransition',
-    TEXT = 'text',
+    RENDERED = 'rendered',
     TIMEOUT = 'timeout',
-    TITLE = 'title',
     TYPE = 'type',
 
-    getCN = A.ClassNameManager.getClassName,
+    NOTIFY_ITEM_NAME = 'notify-item',
 
-    CSS_SHADOW = getCN(NOTIFY_ITEM, SHADOW);
+    UI_ATTRS = [TIMEOUT],
+    WIDGET_UI_ATTRS = A.Widget.prototype._UI_ATTRS,
 
-A.NotifyItem = A.Base.create(NOTIFY_ITEM, A.Widget, [A.WidgetAutohide, A.WidgetChild, A.WidgetPosition, A.WidgetPositionAlign, A.WidgetStdMod], {
+    getCN = A.ClassNameManager.getClassName;
+
+A.NotifyItem = A.Base.create(NOTIFY_ITEM_NAME, A.Widget, [A.WidgetAutohide, A.WidgetChild, A.WidgetPosition, A.WidgetPositionAlign, A.WidgetStdMod], {
+    _timerId: null,
+
     bindUI: function() {
         var instance = this;
 
-        instance.after('render', instance._afterRender);
-        instance.after('visibleChange', instance._afterVisibleChange);
+        // TODO: Check why when after render 'rendered' attribute is false
+        instance.after('renderedChange', instance._afterRender);
     },
 
     renderUI: function() {
         var instance = this,
-            border = instance.get(BORDER),
             boundingBox = instance.get(BOUNDING_BOX),
-            contentBox = instance.get(CONTENT_BOX),
-            shadow = instance.get(SHADOW),
-            showTransition = instance.get(SHOW_TRANSITION),
             type = instance.get(TYPE);
 
-        if (type) {
-            contentBox.addClass(getCN(NOTIFY_ITEM, type));
-
-            if (border) {
-                contentBox.addClass(getCN(NOTIFY_ITEM, type, BORDER));
-            }
-        }
-
-        if (shadow) {
-            contentBox.addClass(CSS_SHADOW);
-        }
-
-        if (showTransition) {
-            boundingBox.transition(showTransition);
-        }
-    },
-
-    syncUI: function() {
-        var instance = this,
-			text = instance.get(TEXT),
-			title = instance.get(TITLE);
-
-		instance.setStdModContent(A.WidgetStdMod.HEADER, title);
-		instance.setStdModContent(A.WidgetStdMod.BODY, text);
+        boundingBox.addClass(getCN(NOTIFY_ITEM_NAME, type));
     },
 
     _afterRender: function() {
-        var instance = this,
-            timeout = instance.get(TIMEOUT);
+        var instance = this;
 
-        if (timeout > 0) {
-            setTimeout(function() {
-                instance.hide();
-            }, timeout);
+        instance._uiSetTimeout(instance.get(TIMEOUT));
+    },
+
+    _uiSetTimeout: function(val) {
+        var instance = this;
+
+        if (instance.get(RENDERED)) {
+            clearTimeout(instance._timerId);
+
+            if (val < Infinity) {
+                instance._timerId = setTimeout(
+                    A.bind(instance.hide, instance),
+                    instance.get(TIMEOUT) + instance.get('hideTransition.duration')
+                );
+            }
         }
     },
 
-    _afterVisibleChange: function(event) {
+    _uiSetVisible: function(val) {
         var instance = this,
             boundingBox = instance.get(BOUNDING_BOX),
-            hideTransition = instance.get('hideTransition');
+            boundingBoxDomElement = boundingBox.getDOM(),
+            showTransition = instance.get('showTransition'),
+            hideTransition = instance.get('hideTransition'),
+            _uiSetVisibleParent = A.bind(A.NotifyItem.superclass._uiSetVisible, instance, val);
 
-        if (event.newVal) {
+        if (val && !showTransition) {
+            _uiSetVisibleParent();
+
             return;
         }
 
-        if (hideTransition) {
-            boundingBox.transition(hideTransition, function() {
-                var index = instance.get('index');
+        if (!val && !hideTransition) {
+            _uiSetVisibleParent();
 
-                instance.fire('hide', { index: index });
-            });
+            instance.fire('hideTransitionEnd');
+
+            return;
+        }
+
+        if (val) {
+            // Set initial opacity, to avoid initial flicker
+            if (showTransition.hasOwnProperty('opacity') && (boundingBoxDomElement.style.opacity === "")) {
+                boundingBox.setStyle('opacity', 0);
+            }
+
+            boundingBox.transition(showTransition, _uiSetVisibleParent);
         }
         else {
-            var index = instance.get('index');
+            // hideTransition.left = instance.get('parent').regions[instance.get('id')].left;
+            // console.log(hideTransition.left);
 
-            instance.fire('hide', { index: index });
+            boundingBox.transition(hideTransition, function() {
+                _uiSetVisibleParent();
+
+                instance.fire('hideTransitionEnd');
+            });
         }
+    },
+
+    _UI_ATTRS: {
+        BIND: WIDGET_UI_ATTRS.BIND.concat(UI_ATTRS),
+        SYNC: WIDGET_UI_ATTRS.SYNC.concat(UI_ATTRS)
     }
 }, {
     ATTRS: {
-        border: {
-            value: false
-        },
-
         hideOn: {
             valueFn: function() {
                 return [
@@ -110,14 +116,11 @@ A.NotifyItem = A.Base.create(NOTIFY_ITEM, A.Widget, [A.WidgetAutohide, A.WidgetC
             validator: A.Lang.isArray
         },
 
-        hideTransition: { 
+        hideTransition: {
             value: {
-                opacity: 0
+                opacity: 0,
+                duration: 1
             }
-        },
-
-        shadow: {
-            value: true
         },
 
         showTransition: {
@@ -126,23 +129,18 @@ A.NotifyItem = A.Base.create(NOTIFY_ITEM, A.Widget, [A.WidgetAutohide, A.WidgetC
             }
         },
 
-        text: {
-            value: ''
-        },
-
         timeout: {
-            value: 2000
-        },
-
-        title: {
-            value: ''
+            validator: function(val) {
+                return isNumber(val) || val === Infinity;
+            },
+            value: Infinity
         },
 
         type: {
             validator: function(val) {
                 return (val === ALERT || val === INFO || val === NOTICE);
             },
-            value: INFO
+            value: ALERT
         }
     }
 });
