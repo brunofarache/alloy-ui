@@ -1,0 +1,13 @@
+.yui3-notify-item {
+	padding: 10px;
+	position: fixed;
+	width: 300px;
+}
+
+.yui3-notify-item .yui3-notify-item-content {
+	padding: 10px;
+}
+
+.yui3-notify-item-hidden {
+	display: none;
+}
